@@ -147,7 +147,6 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
     var currentGroupTitle by remember { mutableStateOf("") }
     val context = LocalContext.current
 
-    // Define link groups for each button - now with just 2 links each
     val linkGroups = mapOf(
         2 to mapOf(
             "Video 1" to "https://docs.google.com/forms/d/e/1FAIpQLSczFNGoke5LfgeqmAZ5BSxZLibDRwDIsFfTavl6BNYPvPQt1A/viewform?usp=sharing",
@@ -214,7 +213,6 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
         )
     )
 
-    // Keep the 60 min quiz selection separate
     val allQuarters = mapOf(
         "1st Quarter" to mapOf(
             "1st Summative (Q1)" to "https://docs.google.com/forms/d/e/1FAIpQLSdSN_smMADh1JZK25S00ogXF8nmMwJAMPGk4r1EhHvVZSOTHw/viewform?usp=sharing",
@@ -242,82 +240,21 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
         )
     )
 
+    // Root Column: Not scrollable. Holds the fixed title and the dynamic content area.
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Part 1: Fixed Title and Subtitle
         Text("quiZigsig", fontSize = 24.sp, modifier = Modifier.padding(bottom = 4.dp))
         Text("Coded by AI compiled by Dinryl P. Basigsig", fontSize = 16.sp)
-
         Spacer(modifier = Modifier.height(18.dp))
 
-        if (!showLinkGroup && !showWebView) {
-            Text("Choose a quarter:", fontSize = 18.sp, modifier = Modifier.padding(bottom = 8.dp))
-
-            val timeLimits = listOf(2, 10, 20, 50, 60)
-            val buttonLabels = mapOf(
-                2 to "Q1_F",
-                10 to "Q2_F",
-                20 to "Q3_F",
-                50 to "Q4_F",
-                60 to "Summative"
-            )
-
-            timeLimits.chunked(3).forEach { row ->
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    row.forEach { time ->
-                        Button(
-                            onClick = {
-                                selectedTime = time
-                                if (time == 60) {
-                                    // Keep original behavior for 60 min button
-                                    showLinkGroup = true
-                                    currentLinkGroup = allQuarters.values.fold(emptyMap()) { acc, map -> acc + map }
-                                    currentGroupTitle = "Summative Quiz Selection"
-                                } else {
-                                    // New behavior for other buttons
-                                    showLinkGroup = true
-                                    currentLinkGroup = linkGroups[time] ?: emptyMap()
-                                    currentGroupTitle = "Quiz Options (${buttonLabels[time]})"
-                                }
-                            },
-                            modifier = Modifier.padding(4.dp)
-                        ) {
-                            Text(buttonLabels[time] ?: "$time min")
-                        }
-                    }
-                }
-            }
-        } else if (showLinkGroup) {
-            Text(currentGroupTitle, fontSize = 20.sp, modifier = Modifier.padding(vertical = 8.dp))
-
-            currentLinkGroup.forEach { (name, link) ->
-                Button(
-                    onClick = {
-                        quizUrl = link
-                        showWebView = true
-                        showLinkGroup = false
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(4.dp)
-                ) {
-                    Text(name)
-                }
-            }
-
-            Button(
-                onClick = {
-                    showLinkGroup = false
-                },
-                modifier = Modifier.padding(top = 8.dp)
-            ) {
-                Text("Back")
-            }
-        } else if (showWebView) {
+        // Part 2: Dynamic Content Area
+        if (showWebView) {
+            // Display the WebView, making it fill the remaining available space
             WebViewScreen(
                 url = quizUrl,
                 timeLimit = selectedTime,
@@ -325,8 +262,72 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
                     showWebView = false
                     showLinkGroup = false
                 },
-                onWebViewCreated = onWebViewCreated
+                onWebViewCreated = onWebViewCreated,
+                modifier = Modifier.weight(1f) // Use weight to fill space
             )
+        } else {
+            // Display the selection buttons inside a new scrollable column
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (!showLinkGroup) {
+                    Text("Choose a quarter:", fontSize = 18.sp, modifier = Modifier.padding(bottom = 8.dp))
+
+                    val timeLimits = listOf(2, 10, 20, 50, 60)
+                    val buttonLabels = mapOf(
+                        2 to "Q1_F", 10 to "Q2_F", 20 to "Q3_F", 50 to "Q4_F", 60 to "Summative"
+                    )
+
+                    timeLimits.chunked(3).forEach { row ->
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                            row.forEach { time ->
+                                Button(
+                                    onClick = {
+                                        selectedTime = time
+                                        if (time == 60) {
+                                            showLinkGroup = true
+                                            currentLinkGroup = allQuarters.values.fold(emptyMap()) { acc, map -> acc + map }
+                                            currentGroupTitle = "Summative Quiz Selection"
+                                        } else {
+                                            showLinkGroup = true
+                                            currentLinkGroup = linkGroups[time] ?: emptyMap()
+                                            currentGroupTitle = "Quiz Options (${buttonLabels[time]})"
+                                        }
+                                    },
+                                    modifier = Modifier.padding(4.dp)
+                                ) {
+                                    Text(buttonLabels[time] ?: "$time min")
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text(currentGroupTitle, fontSize = 20.sp, modifier = Modifier.padding(vertical = 8.dp))
+
+                    currentLinkGroup.forEach { (name, link) ->
+                        Button(
+                            onClick = {
+                                quizUrl = link
+                                showWebView = true
+                                showLinkGroup = false
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(4.dp)
+                        ) {
+                            Text(name)
+                        }
+                    }
+
+                    Button(
+                        onClick = { showLinkGroup = false },
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        Text("Back")
+                    }
+                }
+            }
         }
     }
 }
@@ -337,14 +338,14 @@ fun WebViewScreen(
     url: String,
     timeLimit: Int,
     onQuizCompleted: () -> Unit,
-    onWebViewCreated: (WebView) -> Unit = {}
+    onWebViewCreated: (WebView) -> Unit = {},
+    modifier: Modifier = Modifier // Add modifier parameter
 ) {
     val context = LocalContext.current
     val totalTimeMillis = timeLimit * 60 * 1000L
     var startTime by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
     var remainingTime by remember { mutableStateOf((totalTimeMillis / 1000).toInt()) }
 
-    // Only use timer for 60 min option
     if (timeLimit == 60) {
         LaunchedEffect(key1 = startTime) {
             while (true) {
@@ -366,8 +367,8 @@ fun WebViewScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Only show timer for 60 min option
+    // Apply the passed-in modifier to this Column
+    Column(modifier = modifier.fillMaxWidth()) {
         if (timeLimit == 60) {
             Text(
                 "Time Remaining: ${remainingTime / 60}m ${remainingTime % 60}s",
@@ -376,15 +377,14 @@ fun WebViewScreen(
             )
         }
 
-        AndroidView(factory = { context ->
-            WebView(context).apply {
+        AndroidView(factory = { ctx ->
+            WebView(ctx).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.loadsImagesAutomatically = true
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
 
-                // Enable third-party cookies (important for Google Forms)
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
@@ -396,10 +396,7 @@ fun WebViewScreen(
                         return false
                     }
                 }
-
                 loadUrl(url)
-
-                // Pass the WebView reference back to the MainActivity
                 onWebViewCreated(this)
             }
         }, modifier = Modifier.fillMaxSize())
