@@ -145,6 +145,8 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
     var showLinkGroup by remember { mutableStateOf(false) }
     var currentLinkGroup by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var currentGroupTitle by remember { mutableStateOf("") }
+    // New state to track which quarter is selected in the summative section
+    var selectedQuarter by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
     val linkGroups = mapOf(
@@ -240,21 +242,18 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
         )
     )
 
-    // Root Column: Not scrollable. Holds the fixed title and the dynamic content area.
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Part 1: Fixed Title and Subtitle
+        Spacer(modifier = Modifier.height(22.dp))
         Text("quiZigsig", fontSize = 24.sp, modifier = Modifier.padding(bottom = 4.dp))
         Text("Coded by AI compiled by Dinryl P. Basigsig", fontSize = 16.sp)
         Spacer(modifier = Modifier.height(18.dp))
 
-        // Part 2: Dynamic Content Area
         if (showWebView) {
-            // Display the WebView, making it fill the remaining available space
             WebViewScreen(
                 url = quizUrl,
                 timeLimit = selectedTime,
@@ -263,16 +262,15 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
                     showLinkGroup = false
                 },
                 onWebViewCreated = onWebViewCreated,
-                modifier = Modifier.weight(1f) // Use weight to fill space
+                modifier = Modifier.weight(1f)
             )
         } else {
-            // Display the selection buttons inside a new scrollable column
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 if (!showLinkGroup) {
-                    Text("Choose a quarter:", fontSize = 18.sp, modifier = Modifier.padding(bottom = 8.dp))
+                    Text("Choose a quiz type:", fontSize = 18.sp, modifier = Modifier.padding(bottom = 8.dp))
 
                     val timeLimits = listOf(2, 10, 20, 50, 60)
                     val buttonLabels = mapOf(
@@ -285,12 +283,9 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
                                 Button(
                                     onClick = {
                                         selectedTime = time
-                                        if (time == 60) {
-                                            showLinkGroup = true
-                                            currentLinkGroup = allQuarters.values.fold(emptyMap()) { acc, map -> acc + map }
-                                            currentGroupTitle = "Summative Quiz Selection"
-                                        } else {
-                                            showLinkGroup = true
+                                        showLinkGroup = true
+                                        selectedQuarter = null // Reset quarter selection
+                                        if (time != 60) {
                                             currentLinkGroup = linkGroups[time] ?: emptyMap()
                                             currentGroupTitle = "Quiz Options (${buttonLabels[time]})"
                                         }
@@ -303,25 +298,67 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
                         }
                     }
                 } else {
-                    Text(currentGroupTitle, fontSize = 20.sp, modifier = Modifier.padding(vertical = 8.dp))
-
-                    currentLinkGroup.forEach { (name, link) ->
-                        Button(
-                            onClick = {
-                                quizUrl = link
-                                showWebView = true
-                                showLinkGroup = false
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(4.dp)
-                        ) {
-                            Text(name)
+                    // This 'else' block handles the view after a main button is clicked
+                    if (selectedTime == 60) {
+                        // --- SUMMATIVE QUIZ FLOW ---
+                        if (selectedQuarter == null) {
+                            // Step 1: Show Quarter Selection
+                            Text("Select a Quarter", fontSize = 20.sp, modifier = Modifier.padding(vertical = 8.dp))
+                            allQuarters.keys.forEach { quarterName ->
+                                Button(
+                                    onClick = { selectedQuarter = quarterName },
+                                    modifier = Modifier.fillMaxWidth().padding(4.dp)
+                                ) {
+                                    Text(quarterName)
+                                }
+                            }
+                        } else {
+                            // Step 2: Show Quizzes for the selected quarter
+                            Text("$selectedQuarter Quizzes", fontSize = 20.sp, modifier = Modifier.padding(vertical = 8.dp))
+                            val quizzesForQuarter = allQuarters[selectedQuarter] ?: emptyMap()
+                            quizzesForQuarter.forEach { (name, link) ->
+                                Button(
+                                    onClick = {
+                                        quizUrl = link
+                                        showWebView = true
+                                        showLinkGroup = false
+                                    },
+                                    modifier = Modifier.fillMaxWidth().padding(4.dp)
+                                ) {
+                                    Text(name)
+                                }
+                            }
+                        }
+                    } else {
+                        // --- ORIGINAL FLOW FOR FORMATIVE QUIZZES ---
+                        Text(currentGroupTitle, fontSize = 20.sp, modifier = Modifier.padding(vertical = 8.dp))
+                        currentLinkGroup.forEach { (name, link) ->
+                            Button(
+                                onClick = {
+                                    quizUrl = link
+                                    showWebView = true
+                                    showLinkGroup = false
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(4.dp)
+                            ) {
+                                Text(name)
+                            }
                         }
                     }
 
+                    // --- BACK BUTTON ---
                     Button(
-                        onClick = { showLinkGroup = false },
+                        onClick = {
+                            if (selectedTime == 60 && selectedQuarter != null) {
+                                // In summative flow, go from quiz list back to quarter list
+                                selectedQuarter = null
+                            } else {
+                                // Go back to the main menu from any other screen
+                                showLinkGroup = false
+                            }
+                        },
                         modifier = Modifier.padding(top = 8.dp)
                     ) {
                         Text("Back")
