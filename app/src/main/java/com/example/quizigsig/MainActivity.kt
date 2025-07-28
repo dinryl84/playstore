@@ -12,9 +12,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,7 +22,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -32,46 +32,66 @@ class MainActivity : ComponentActivity() {
     private var backgroundRunCount = 0
     private var webViewReference: WebView? = null
 
+    // A flag to ensure auto-submission only runs once.
+    private var isExiting = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            QuizApp(onWebViewCreated = { webView -> webViewReference = webView })
+            QuizApp(
+                onWebViewCreated = { webView -> webViewReference = webView },
+                onTimeExpired = { autoSubmitAndExit() }
+            )
         }
     }
 
     override fun onPause() {
         super.onPause()
+
+        if (isExiting) return
+
         backgroundRunCount++
 
-        if (backgroundRunCount == 1) {
-            showFirstWarningDialog(this)
-        } else if (backgroundRunCount in 2..4) {
-            showMidWarningDialog(this, backgroundRunCount)
-        } else if (backgroundRunCount == 5) {
-            autoSubmitAndExit()
+        when (backgroundRunCount) {
+            in 1..4 -> {
+                showWarningDialog(this, backgroundRunCount)
+            }
+            5 -> {
+                showFinalWarningAndExit()
+            }
         }
     }
 
-    private fun showFirstWarningDialog(context: Context) {
+    private fun showWarningDialog(context: Context, count: Int) {
+        val remaining = 5 - count
+        val message = if (count == 1) {
+            "Switching apps is not allowed and will be tracked. You have $remaining warnings left before the quiz auto-submits."
+        } else {
+            "You have switched apps $count times. You have $remaining warnings left."
+        }
+
         AlertDialog.Builder(context)
-            .setTitle("Warning")
-            .setMessage("Switching apps may cause you to lose your answers. If you do it again, your answers will be cleared but you can continue. You are allowed up to 5 switches.")
+            .setTitle("Warning #$count")
+            .setMessage(message)
+            .setCancelable(false)
             .setPositiveButton("OK", null)
             .show()
     }
 
-    private fun showMidWarningDialog(context: Context, count: Int) {
-        val left = 5 - count
-        AlertDialog.Builder(context)
-            .setTitle("Warning")
-            .setMessage("You have switched apps $count time(s). You only have $left more before your form will auto-submit.")
-            .setPositiveButton("OK", null)
+    private fun showFinalWarningAndExit() {
+        isExiting = true
+        AlertDialog.Builder(this)
+            .setTitle("Final Warning!")
+            .setMessage("You have used all your warnings. The quiz will now be submitted automatically and the app will close.")
+            .setCancelable(false)
+            .setPositiveButton("OK") { _, _ ->
+                autoSubmitAndExit()
+            }
             .show()
     }
 
-    private fun autoSubmitAndExit() {
-        webViewReference?.evaluateJavascript(
-            """
+    private fun performAutoSubmit() {
+        val jsCode = """
             (function() {
                 function simulateClick(el) {
                     var evt = new MouseEvent('click', {
@@ -98,56 +118,37 @@ class MainActivity : ComponentActivity() {
                     }
                     return false;
                 }
+                
+                findAndClickSubmit();
 
-                function findAndClickViewScore() {
-                    var spans = document.querySelectorAll('span');
-                    for (var i = 0; i < spans.length; i++) {
-                        if (spans[i].innerText.trim().toLowerCase().includes("view score")) {
-                            var parent = spans[i];
-                            while (parent && parent.tagName !== 'BODY') {
-                                if (parent.getAttribute('role') === 'button') {
-                                    simulateClick(parent);
-                                    return true;
-                                }
-                                parent = parent.parentElement;
-                            }
-                        }
-                    }
-                    return false;
-                }
-
-                // Submit first
-                if (findAndClickSubmit()) {
-                    setTimeout(function() {
-                        findAndClickViewScore();
-                    }, 2000);
-                }
-
-                return "✅ Submit and View Score attempted.";
+                return "✅ Submit attempted.";
             })();
             """.trimIndent()
-        ) { result ->
-            println("Result: $result")
 
-            Handler(Looper.getMainLooper()).postDelayed({
-                android.os.Process.killProcess(android.os.Process.myPid())
-                exitProcess(0)
-            }, 10000) // wait 6 seconds to finish actions before exit
-        }
+        webViewReference?.evaluateJavascript(jsCode, null)
+    }
+
+    private fun autoSubmitAndExit() {
+        performAutoSubmit()
+        Handler(Looper.getMainLooper()).postDelayed({
+            finishAndRemoveTask()
+            exitProcess(0)
+        }, 2000)
     }
 }
 
 @Composable
-fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
+fun QuizApp(
+    onWebViewCreated: (WebView) -> Unit = {},
+    onTimeExpired: () -> Unit
+) {
     var quizUrl by remember { mutableStateOf("") }
     var showWebView by remember { mutableStateOf(false) }
     var selectedTime by remember { mutableStateOf(0) }
     var showLinkGroup by remember { mutableStateOf(false) }
     var currentLinkGroup by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var currentGroupTitle by remember { mutableStateOf("") }
-    // New state to track which quarter is selected in the summative section
     var selectedQuarter by remember { mutableStateOf<String?>(null) }
-    val context = LocalContext.current
 
     val linkGroups = mapOf(
         2 to mapOf(
@@ -248,7 +249,14 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(22.dp))
+        Image(
+            painter = painterResource(id = R.drawable.round_logo_icon),
+            contentDescription = "App Logo",
+            modifier = Modifier
+                .height(120.dp)
+
+        )
+
         Text("quiZigsig", fontSize = 24.sp, modifier = Modifier.padding(bottom = 4.dp))
         Text("Coded by AI compiled by Dinryl P. Basigsig", fontSize = 16.sp)
         Spacer(modifier = Modifier.height(18.dp))
@@ -262,7 +270,8 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
                     showLinkGroup = false
                 },
                 onWebViewCreated = onWebViewCreated,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                onTimeExpired = onTimeExpired
             )
         } else {
             Column(
@@ -272,9 +281,12 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
                 if (!showLinkGroup) {
                     Text("Choose a quiz type:", fontSize = 18.sp, modifier = Modifier.padding(bottom = 8.dp))
 
+                    // CHANGED: The timer value is now 60
                     val timeLimits = listOf(2, 10, 20, 50, 60)
                     val buttonLabels = mapOf(
-                        2 to "Q1_F", 10 to "Q2_F", 20 to "Q3_F", 50 to "Q4_F", 60 to "Summative"
+                        2 to "Q1_F", 10 to "Q2_F", 20 to "Q3_F", 50 to "Q4_F",
+                        // CHANGED: The key for Summative is now 60
+                        60 to "Summative"
                     )
 
                     timeLimits.chunked(3).forEach { row ->
@@ -284,7 +296,8 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
                                     onClick = {
                                         selectedTime = time
                                         showLinkGroup = true
-                                        selectedQuarter = null // Reset quarter selection
+                                        selectedQuarter = null
+                                        // CHANGED: The check is now for 60
                                         if (time != 60) {
                                             currentLinkGroup = linkGroups[time] ?: emptyMap()
                                             currentGroupTitle = "Quiz Options (${buttonLabels[time]})"
@@ -298,11 +311,10 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
                         }
                     }
                 } else {
-                    // This 'else' block handles the view after a main button is clicked
+                    // CHANGED: The check is now for 60
                     if (selectedTime == 60) {
                         // --- SUMMATIVE QUIZ FLOW ---
                         if (selectedQuarter == null) {
-                            // Step 1: Show Quarter Selection
                             Text("Select a Quarter", fontSize = 20.sp, modifier = Modifier.padding(vertical = 8.dp))
                             allQuarters.keys.forEach { quarterName ->
                                 Button(
@@ -313,7 +325,6 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
                                 }
                             }
                         } else {
-                            // Step 2: Show Quizzes for the selected quarter
                             Text("$selectedQuarter Quizzes", fontSize = 20.sp, modifier = Modifier.padding(vertical = 8.dp))
                             val quizzesForQuarter = allQuarters[selectedQuarter] ?: emptyMap()
                             quizzesForQuarter.forEach { (name, link) ->
@@ -351,11 +362,10 @@ fun QuizApp(onWebViewCreated: (WebView) -> Unit = {}) {
                     // --- BACK BUTTON ---
                     Button(
                         onClick = {
+                            // CHANGED: The check is now for 60
                             if (selectedTime == 60 && selectedQuarter != null) {
-                                // In summative flow, go from quiz list back to quarter list
                                 selectedQuarter = null
                             } else {
-                                // Go back to the main menu from any other screen
                                 showLinkGroup = false
                             }
                         },
@@ -376,13 +386,15 @@ fun WebViewScreen(
     timeLimit: Int,
     onQuizCompleted: () -> Unit,
     onWebViewCreated: (WebView) -> Unit = {},
-    modifier: Modifier = Modifier // Add modifier parameter
+    modifier: Modifier = Modifier,
+    onTimeExpired: () -> Unit
 ) {
     val context = LocalContext.current
     val totalTimeMillis = timeLimit * 60 * 1000L
     var startTime by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
     var remainingTime by remember { mutableStateOf((totalTimeMillis / 1000).toInt()) }
 
+    // CHANGED: This check enables the timer logic for the 60-minute quiz
     if (timeLimit == 60) {
         LaunchedEffect(key1 = startTime) {
             while (true) {
@@ -396,6 +408,7 @@ fun WebViewScreen(
 
                 if (remainingTime <= 0) {
                     showTimeUpDialog(context)
+                    onTimeExpired()
                     break
                 }
 
@@ -404,8 +417,8 @@ fun WebViewScreen(
         }
     }
 
-    // Apply the passed-in modifier to this Column
     Column(modifier = modifier.fillMaxWidth()) {
+        // CHANGED: This check displays the timer text for the 60-minute quiz
         if (timeLimit == 60) {
             Text(
                 "Time Remaining: ${remainingTime / 60}m ${remainingTime % 60}s",
@@ -442,8 +455,8 @@ fun WebViewScreen(
 
 fun showOneMinuteLeftDialog(context: Context) {
     AlertDialog.Builder(context)
-        .setTitle("Time Alert")
-        .setMessage("Only 1 minute remaining!")
+        .setTitle("SUBMIT or LOSE everything")
+        .setMessage("Only 1 minute remaining sumbit to save your quiz!")
         .setPositiveButton("OK", null)
         .show()
 }
@@ -451,7 +464,8 @@ fun showOneMinuteLeftDialog(context: Context) {
 fun showTimeUpDialog(context: Context) {
     AlertDialog.Builder(context)
         .setTitle("Time's Up")
-        .setMessage("The time for the quiz has expired.")
+        .setMessage("The time for the quiz has expired. The form will now be submitted.")
         .setPositiveButton("OK", null)
+        .setCancelable(false)
         .show()
 }
